@@ -1,9 +1,33 @@
-/* DeepSeek peak/off-peak price logic. Ported from deepakness.com/deepseek —
-   keep the two in sync (SWITCH_MINUTES, WEEKEND_RULE_START, CN_HOLIDAYS). */
+/* Shared pricing clock. DeepSeek's rules are ported from
+   deepakness.com/deepseek; Ollama's rules come from ollama.com/pricing. */
 
-// Peak window switch instants in UTC minutes-of-day: 01:00 and 06:00 open
-// a peak window, 04:00 and 10:00 close one. Everything else is off-peak.
+const DEFAULT_PROVIDER = "deepseek";
+// Keep DeepSeek's UTC switch instants in sync with deepakness.com/deepseek.
 const SWITCH_MINUTES = [60, 240, 360, 600];
+const PROVIDERS = {
+  deepseek: {
+    id: "deepseek",
+    name: "DeepSeek",
+    switchMinutes: SWITCH_MINUTES,
+    dayBoundaryMinutes: 960, // Midnight in Beijing.
+    schedule: "Weekends & CN holidays off-peak · Beijing time",
+    url: "https://deepakness.com/deepseek/",
+    linkLabel: "Full price clock ↗",
+  },
+  ollama: {
+    id: "ollama",
+    name: "Ollama",
+    switchMinutes: [720, 1080],
+    dayBoundaryMinutes: 0, // Weekends follow UTC, not Beijing time.
+    schedule: "Peak: Mon–Fri, 12:00–18:00 UTC · weekends off-peak",
+    url: "https://ollama.com/pricing",
+    linkLabel: "Ollama pricing ↗",
+  },
+};
+
+function getProvider(id = DEFAULT_PROVIDER) {
+  return Object.hasOwn(PROVIDERS, id) ? PROVIDERS[id] : PROVIDERS[DEFAULT_PROVIDER];
+}
 
 // Since 00:00 Beijing time on Sunday August 23, 2026 (16:00 UTC Saturday
 // August 22) the split only applies Monday to Friday Beijing time.
@@ -34,9 +58,11 @@ function isBeijingHoliday(date) {
   return false;
 }
 
-// A Saturday, Sunday or public holiday under the new rules is
-// off-peak all day.
-function offPeakAllDay(date) {
+// Each provider applies its own weekend timezone and holiday rules.
+function offPeakAllDay(date, provider = DEFAULT_PROVIDER) {
+  if (getProvider(provider).id === "ollama") {
+    return date.getUTCDay() === 0 || date.getUTCDay() === 6;
+  }
   return (
     date.getTime() >= WEEKEND_RULE_START &&
     (isBeijingWeekend(date) || isBeijingHoliday(date))
@@ -44,26 +70,30 @@ function offPeakAllDay(date) {
 }
 
 // Which half of the pricing an instant falls in.
-function kindAtInstant(date) {
-  if (offPeakAllDay(date)) return "off";
+function kindAtInstant(date, provider = DEFAULT_PROVIDER) {
+  if (offPeakAllDay(date, provider)) return "off";
   const minuteOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
-  return (minuteOfDay >= 60 && minuteOfDay < 240) ||
-    (minuteOfDay >= 360 && minuteOfDay < 600)
-    ? "peak"
-    : "off";
+  const switches = getProvider(provider).switchMinutes;
+  for (let i = 0; i < switches.length; i += 2) {
+    if (minuteOfDay >= switches[i] && minuteOfDay < switches[i + 1]) {
+      return "peak";
+    }
+  }
+  return "off";
 }
 
 // A switch minute is a real price change only outside gated weekends/holidays.
-function isSwitchInstant(date) {
+function isSwitchInstant(date, provider = DEFAULT_PROVIDER) {
   const minuteOfDay = date.getUTCHours() * 60 + date.getUTCMinutes();
-  for (const m of SWITCH_MINUTES) {
-    if (minuteOfDay === m) return !offPeakAllDay(date);
+  for (const m of getProvider(provider).switchMinutes) {
+    if (minuteOfDay === m) return !offPeakAllDay(date, provider);
   }
   return false;
 }
 
 // The next N price changes as absolute instants.
-function nextSwitches(now, count) {
+function nextSwitches(now, count, provider = DEFAULT_PROVIDER) {
+  const switches = getProvider(provider).switchMinutes;
   const dayStart = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
@@ -73,13 +103,13 @@ function nextSwitches(now, count) {
   let day = 0;
   let index = 0;
   while (out.length < count) {
-    const instant = dayStart + day * 86400000 + SWITCH_MINUTES[index] * 60000;
+    const instant = dayStart + day * 86400000 + switches[index] * 60000;
     const candidate = new Date(instant);
-    if (instant > now.getTime() && isSwitchInstant(candidate)) {
-      out.push({ date: candidate, kind: kindAtInstant(candidate) });
+    if (instant > now.getTime() && isSwitchInstant(candidate, provider)) {
+      out.push({ date: candidate, kind: kindAtInstant(candidate, provider) });
     }
     index++;
-    if (index >= SWITCH_MINUTES.length) {
+    if (index >= switches.length) {
       index = 0;
       day++;
     }
@@ -87,15 +117,15 @@ function nextSwitches(now, count) {
   return out;
 }
 
-function nextSwitch(now) {
-  return nextSwitches(now, 1)[0];
+function nextSwitch(now, provider = DEFAULT_PROVIDER) {
+  return nextSwitches(now, 1, provider)[0];
 }
 
 // Current window plus the instant it ends.
-function currentWindow(now) {
-  const next = nextSwitch(now);
+function currentWindow(now, provider = DEFAULT_PROVIDER) {
+  const next = nextSwitch(now, provider);
   return {
-    kind: kindAtInstant(now),
+    kind: kindAtInstant(now, provider),
     nextKind: next.kind,
     end: next.date,
     minuteOfDay: now.getUTCHours() * 60 + now.getUTCMinutes(),
@@ -104,7 +134,7 @@ function currentWindow(now) {
 
 // The instant the window you're in began. Walks back up to 21 days to cross
 // any weekend + holiday off-peak stretch.
-function currentWindowStart(now) {
+function currentWindowStart(now, provider = DEFAULT_PROVIDER) {
   const dayStart = Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
@@ -112,12 +142,12 @@ function currentWindowStart(now) {
   );
   let best = null;
   for (let day = -21; day <= 0; day++) {
-    for (let i = 0; i < SWITCH_MINUTES.length; i++) {
-      const instant = dayStart + day * 86400000 + SWITCH_MINUTES[i] * 60000;
+    for (const minute of getProvider(provider).switchMinutes) {
+      const instant = dayStart + day * 86400000 + minute * 60000;
       const candidate = new Date(instant);
       if (
         instant <= now.getTime() &&
-        isSwitchInstant(candidate) &&
+        isSwitchInstant(candidate, provider) &&
         (best === null || instant > best.getTime())
       ) {
         best = candidate;
@@ -128,10 +158,10 @@ function currentWindowStart(now) {
 }
 
 // A list of windows as start/end pairs, opening with the active window.
-function windowList(now, count) {
-  const upcoming = nextSwitches(now, count);
-  let start = currentWindowStart(now);
-  let kind = kindAtInstant(now);
+function windowList(now, count, provider = DEFAULT_PROVIDER) {
+  const upcoming = nextSwitches(now, count, provider);
+  let start = currentWindowStart(now, provider);
+  let kind = kindAtInstant(now, provider);
   const out = [];
   for (let i = 0; i < count; i++) {
     out.push({
@@ -147,18 +177,17 @@ function windowList(now, count) {
 }
 
 // Rebuild the 24-hour day bar in display time (offsetMinutes ahead of UTC).
-function displaySegments(now, offsetMinutes) {
+function displaySegments(now, offsetMinutes, provider = DEFAULT_PROVIDER) {
+  const displayDate = new Date(now.getTime() + offsetMinutes * 60000);
   const dayStart =
-    offsetMinutes === 0
-      ? Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-      : Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) -
-        offsetMinutes * 60000;
+    Date.UTC(displayDate.getUTCFullYear(), displayDate.getUTCMonth(), displayDate.getUTCDate()) -
+    offsetMinutes * 60000;
 
   const boundaries = [0, 1440];
-  for (const m of SWITCH_MINUTES) {
+  const config = getProvider(provider);
+  for (const m of [...config.switchMinutes, config.dayBoundaryMinutes]) {
     boundaries.push(((m + offsetMinutes) % 1440 + 1440) % 1440);
   }
-  boundaries.push(((960 + offsetMinutes) % 1440 + 1440) % 1440);
   boundaries.sort((a, b) => a - b);
 
   const raw = [];
@@ -167,7 +196,7 @@ function displaySegments(now, offsetMinutes) {
     const end = boundaries[i + 1];
     if (end <= start) continue;
     const sample = new Date(dayStart + (start + 0.5) * 60000);
-    raw.push({ start, end, kind: kindAtInstant(sample) });
+    raw.push({ start, end, kind: kindAtInstant(sample, provider) });
   }
 
   const merged = [];

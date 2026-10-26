@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>DeepSeek Price Clock</title>
+<title>DeepSeek &amp; Ollama Price Clock</title>
 <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -10,7 +10,7 @@
     <div class="ds-brand">
       <img class="ds-brand-mark" id="ds-brand-mark" src="icons/off48.png" width="24" height="24" alt="">
       <div class="ds-brand-text">
-        <h1 class="ds-title">DeepSeek Price Clock</h1>
+        <h1 class="ds-title" id="ds-title">DeepSeek Price Clock</h1>
         <span class="ds-tz" id="ds-tz">Local time</span>
       </div>
     </div>
@@ -19,6 +19,14 @@
       <button type="button" class="ds-toggle-btn" data-zone="utc" aria-pressed="false">UTC</button>
     </span>
   </header>
+
+  <div class="ds-provider-row">
+    <label for="ds-provider">Pricing provider</label>
+    <select id="ds-provider" class="ds-provider" disabled>
+      <option value="deepseek">DeepSeek</option>
+      <option value="ollama">Ollama</option>
+    </select>
+  </div>
 
   <div class="ds-card">
     <div class="ds-hero ds-hero-off" id="ds-hero">
@@ -105,9 +113,9 @@
   <footer class="ds-foot">
     <div class="ds-foot-left">
       <span class="ds-legend"><span class="ds-swatch ds-swatch-off" aria-hidden="true"></span>Green icon = off-peak<span class="ds-legend-sep" aria-hidden="true">·</span><span class="ds-swatch ds-swatch-peak" aria-hidden="true"></span>Red icon = peak</span>
-      <span>Weekends &amp; CN holidays off-peak</span>
+      <span id="ds-schedule">Weekends &amp; CN holidays off-peak · Beijing time</span>
     </div>
-    <a href="https://deepakness.com/deepseek/" target="_blank" rel="noopener">Full price clock ↗</a>
+    <a id="ds-pricing-link" href="https://deepakness.com/deepseek/" target="_blank" rel="noopener">Full price clock ↗</a>
   </footer>
 
   <script src="price.js"></script>

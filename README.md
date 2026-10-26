@@ -1,6 +1,6 @@
-# DeepSeek Price Clock
+# DeepSeek & Ollama Price Clock
 
-Chrome and Firefox extension (Manifest V3) that shows DeepSeek API pricing at a glance. The toolbar icon shows the DeepSeek whale on green during off-peak (half price) and on red during peak, so one look tells you whether to run the job now or queue it for the cheap window.
+Chrome and Firefox extension (Manifest V3) that shows DeepSeek or Ollama pricing at a glance. Choose a pricing provider in the popup; the toolbar icon, countdown, timeline, upcoming windows, and optional alerts follow that provider. DeepSeek is the default, and your selection is saved across browser restarts. The toolbar icon shows the DeepSeek whale on green during off-peak (half price) and on red during peak for the tracked DeepSeek models.
 
 <img width="363" height="134" alt="Toolbar icon: green whale for off-peak, red whale for peak" src="https://github.com/user-attachments/assets/c7245722-88d9-4473-bc2b-82cdc9695522" />
 
@@ -10,8 +10,11 @@ Chrome and Firefox extension (Manifest V3) that shows DeepSeek API pricing at a 
 
 - Green icon = off-peak (half price), red icon = peak. Hover shows when the window flips.
 - Popup with a live countdown, 24-hour price timeline, upcoming window schedule, and current Flash/Pro rates (input, cached input, output).
-- Local/UTC toggle. Weekends and Chinese public holidays are off-peak all day.
-- Optional desktop notification when the price flips between peak and off-peak. Turn it on with the toggle in the popup; the browser asks for the notifications permission the first time.
+- Local/UTC toggle for the displayed times; billing schedules always use the provider's timezone.
+- **DeepSeek:** peak 01:00–04:00 and 06:00–10:00 UTC. Weekends and configured Chinese public holidays, determined in Beijing time, are off-peak all day.
+- **Ollama:** peak Monday–Friday, 12:00–18:00 UTC. All other times, including all of Saturday and Sunday in UTC, are off-peak. Chinese holidays do not change Ollama's schedule.
+- Ollama's discounted models are **deepseek-v4.1-flash** and **deepseek-v4-pro**. Their input, cached input, and output rates match the Flash/Pro rates shown for DeepSeek, with 50% off during off-peak hours. Other Ollama models have no off-peak rate listed and are not shown. Source: [Ollama pricing](https://ollama.com/pricing), checked October 26, 2026.
+- Optional desktop notification when the selected provider's price flips between peak and off-peak. Changing providers does not send an alert. Turn alerts on with the toggle in the popup; the browser asks for the notifications permission the first time.
 - Fully offline. No host permissions, no network calls.
 
 > [!IMPORTANT]
@@ -19,6 +22,16 @@ Chrome and Firefox extension (Manifest V3) that shows DeepSeek API pricing at a 
 > - **macOS:** System Settings → Notifications → Google Chrome (or Firefox) → turn on **Allow notifications** (often off by default). Focus / Do Not Disturb hides banners.
 > - **Windows:** Settings → System → Notifications → turn on **Google Chrome** (or **Firefox**). Focus / Do Not Disturb hides banners. To get alerts with all Chrome windows closed, enable **Continue running background apps when Google Chrome is closed** in `chrome://settings/system`.
 > - **Linux:** depends on your desktop's notification settings; make sure the browser isn't muted and Do Not Disturb is off.
+
+## Try the Ollama feature branch
+
+Ollama support is on `feature/ollama-support` and is not included in the upstream releases linked below.
+
+```sh
+git clone --branch feature/ollama-support https://github.com/sumeetweb/deepseek-price-clock.git
+```
+
+Load the cloned folder as an unpacked extension in Chrome. For Firefox, run `node build.mjs firefox` in that folder and load `dist/firefox/manifest.json` as a temporary add-on. After updating an existing unpacked installation, reload the extension in `chrome://extensions` so its background worker also picks up the new provider logic.
 
 ## Install in Chrome
 
@@ -44,9 +57,9 @@ If a release has no `.xpi` yet, unzip `deepseek-price-clock-firefox.zip` from it
 
 ## How it works
 
-- `price.js` holds the peak/off-peak logic (UTC windows, Beijing weekends, CN holidays). It is ported from [deepakness.com/deepseek](https://deepakness.com/deepseek/) — keep the two in sync.
-- `background.js` recomputes the window on an alarm tick, swaps the toolbar icon, and sends the flip notification when alerts are on.
-- `popup.html` / `popup.css` / `popup.js` render the countdown, timeline, schedule, and rates.
+- `price.js` holds provider settings and peak/off-peak logic. DeepSeek's rules are ported from [deepakness.com/deepseek](https://deepakness.com/deepseek/) — keep those rules in sync. Ollama uses its own UTC weekday schedule.
+- `background.js` reads the selected provider from `chrome.storage.local`, recomputes its window on an alarm tick or provider change, swaps the toolbar icon, and sends the flip notification when alerts are on.
+- `popup.html` / `popup.css` / `popup.js` render the provider selector, countdown, timeline, schedule, and rates. Rates are bundled with the extension; updates require an extension reload.
 - The repo root loads as-is in Chrome. `node build.mjs` writes `dist/chrome/` and `dist/firefox/` plus a zip for each; `platforms/firefox.json` holds the Firefox-only manifest keys (background scripts instead of a service worker, and the add-on ID `deepseek-clock@deepakness.com`, which must never change).
 
 `CN_HOLIDAYS` in `price.js` needs the next year's Chinese public holidays once the State Council announces them (usually November).

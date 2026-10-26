@@ -137,6 +137,42 @@ body {
   color: #ffffff;
 }
 
+.ds-provider-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ds-provider {
+  min-width: 115px;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.ds-provider:hover {
+  background: var(--surface-hover);
+}
+
+.ds-provider:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.ds-provider:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 /* Main clock card */
 .ds-card {
   border: 1px solid var(--border);
@@ -635,6 +671,7 @@ body {
   margin-top: 9px;
   font-size: 11px;
   color: var(--text-soft);
+  flex-wrap: wrap;
 }
 
 .ds-foot a {

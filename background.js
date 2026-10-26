@@ -17,38 +17,45 @@ function endLabel(end) {
 // Shows a desktop notification when the window kind differs from the last
 // one seen, if alerts are on and the flip just happened. The first run after
 // install only records the current kind.
-async function maybeNotify(now, win) {
-  const { lastKind, notify } = await chrome.storage.local.get([
+async function maybeNotify(now, win, provider) {
+  const { lastKind, lastProvider, notify, provider: selectedProvider } = await chrome.storage.local.get([
     "lastKind",
+    "lastProvider",
     "notify",
+    "provider",
   ]);
-  if (lastKind === win.kind) return;
-  await chrome.storage.local.set({ lastKind: win.kind });
-  if (!notify || !lastKind) return;
-  if (now.getTime() - currentWindowStart(now).getTime() > NOTIFY_GRACE_MS) {
+  if (getProvider(selectedProvider).id !== provider) return;
+  if (lastProvider === provider && lastKind === win.kind) return;
+  await chrome.storage.local.set({ lastKind: win.kind, lastProvider: provider });
+  // Changing providers establishes a baseline rather than announcing a flip.
+  if (!notify || !lastKind || lastProvider !== provider) return;
+  if (now.getTime() - currentWindowStart(now, provider).getTime() > NOTIFY_GRACE_MS) {
     return;
   }
   if (!(await chrome.permissions.contains({ permissions: ["notifications"] }))) {
     return;
   }
   const peak = win.kind === "peak";
+  const name = getProvider(provider).name;
   const time = endLabel(win.end);
   await chrome.notifications.create("flip", {
     type: "basic",
     iconUrl: peak ? "icons/peak128.png" : "icons/off128.png",
     title: peak
-      ? "DeepSeek: peak pricing started"
-      : "DeepSeek: off-peak started (half price)",
+      ? `${name}: peak pricing started`
+      : `${name}: off-peak started (half price)`,
     message: peak ? `Off-peak again ${time}` : `Half price until ${time}`,
   });
 }
 
-// Recomputes the current window and paints the toolbar icon: green "D" for
-// off-peak, red "D" for peak. Runs on install, on every alarm tick, and
+// Recomputes the selected provider's window and paints the toolbar icon:
+// green for off-peak, red for peak. Runs on install, on every alarm tick, and
 // whenever the browser wakes the worker.
 async function update() {
+  const { provider: savedProvider } = await chrome.storage.local.get("provider");
+  const provider = getProvider(savedProvider);
   const now = new Date();
-  const win = currentWindow(now);
+  const win = currentWindow(now, provider.id);
   const peak = win.kind === "peak";
   const prefix = peak ? "peak" : "off";
   await chrome.action.setIcon({
@@ -62,8 +69,8 @@ async function update() {
   const time = endLabel(win.end);
   await chrome.action.setTitle({
     title: peak
-      ? `DeepSeek: peak pricing until ${time}`
-      : `DeepSeek: off-peak (half price) until ${time}`,
+      ? `${provider.name}: peak pricing until ${time}`
+      : `${provider.name}: off-peak (half price) until ${time}`,
   });
   // Align the next tick with the top of the next minute.
   const delay = 61000 - now.getMilliseconds() - now.getSeconds() * 1000;
@@ -71,7 +78,7 @@ async function update() {
   // Second alarm at the exact switch instant, so the icon flips on time even
   // if the worker was asleep.
   chrome.alarms.create("switch", { when: win.end.getTime() + 1000 });
-  await maybeNotify(now, win);
+  await maybeNotify(now, win, provider.id);
 }
 
 // The tick and switch alarms land on the same second at a flip, so runs are
@@ -93,4 +100,7 @@ chrome.permissions.onAdded.addListener((perms) => {
 chrome.runtime.onInstalled.addListener(refresh);
 chrome.runtime.onStartup.addListener(refresh);
 chrome.alarms.onAlarm.addListener(refresh);
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.provider) refresh();
+});
 refresh();

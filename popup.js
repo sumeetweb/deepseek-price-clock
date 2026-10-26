@@ -3,6 +3,10 @@
 "use strict";
 
 const heroEl = document.getElementById("ds-hero");
+const titleEl = document.getElementById("ds-title");
+const providerEl = document.getElementById("ds-provider");
+const scheduleEl = document.getElementById("ds-schedule");
+const pricingLinkEl = document.getElementById("ds-pricing-link");
 const brandMarkEl = document.getElementById("ds-brand-mark");
 const badgeEl = document.getElementById("ds-badge-text");
 const countEl = document.getElementById("ds-count");
@@ -20,6 +24,8 @@ const nowEl = document.getElementById("ds-now");
 const tzEl = document.getElementById("ds-tz");
 const toggleBtns = Array.from(document.querySelectorAll(".ds-toggle-btn"));
 
+let provider = DEFAULT_PROVIDER;
+let trackKey = "";
 let zone = "local";
 try {
   const saved = localStorage.getItem("ds-zone");
@@ -133,9 +139,9 @@ function rangeLabel(start, end) {
   return `${dayLabel(start, end, false)} – ${dayLabel(end, start, false)}`;
 }
 
-function renderTrack() {
+function renderTrack(now) {
   trackEl.innerHTML = "";
-  const segments = displaySegments(new Date(), displayOffset());
+  const segments = displaySegments(now, displayOffset(), provider);
   for (const seg of segments) {
     const div = document.createElement("div");
     div.className = `ds-seg ds-seg-${seg.kind}`;
@@ -164,7 +170,7 @@ function buildWindowRows(count) {
 
 function renderWindows(now) {
   windowsZoneEl.textContent = zone === "utc" ? "UTC" : "your time";
-  const items = windowList(now, windowRows.length);
+  const items = windowList(now, windowRows.length, provider);
   items.forEach((item, i) => {
     const row = windowRows[i];
     row.tr.className = `ds-win-${item.kind}${item.current ? " ds-win-current" : ""}`;
@@ -178,15 +184,20 @@ function renderWindows(now) {
 
 function tick() {
   const now = new Date();
-  const win = currentWindow(now);
+  const win = currentWindow(now, provider);
   const peak = win.kind === "peak";
+  const nextTrackKey = `${provider}:${displayDayKey(now)}:${displayOffset()}`;
+  if (trackKey !== nextTrackKey) {
+    renderTrack(now);
+    trackKey = nextTrackKey;
+  }
 
   document.body.classList.toggle("is-peak", peak);
   brandMarkEl.src = peak ? "icons/peak48.png" : "icons/off48.png";
   heroEl.className = `ds-hero ds-hero-${win.kind}`;
   badgeEl.textContent = peak ? "Peak pricing" : "Off-peak · half price";
   countEl.textContent = clock((win.end.getTime() - now.getTime()) / 1000);
-  const winStart = currentWindowStart(now).getTime();
+  const winStart = currentWindowStart(now, provider).getTime();
   const winFrac = (now.getTime() - winStart) / (win.end.getTime() - winStart);
   progressFillEl.style.width = `${(Math.min(1, Math.max(0, winFrac)) * 100).toFixed(3)}%`;
 
@@ -227,10 +238,36 @@ function setZone(nextZone) {
   } catch {}
   buildFormatters();
   renderTzLabel();
-  renderTrack();
+  trackKey = "";
   applyToggleState();
   tick();
 }
+
+function applyProvider(id) {
+  const selected = getProvider(id);
+  provider = selected.id;
+  providerEl.value = provider;
+  titleEl.textContent = `${selected.name} Price Clock`;
+  document.title = titleEl.textContent;
+  scheduleEl.textContent = selected.schedule;
+  pricingLinkEl.href = selected.url;
+  pricingLinkEl.textContent = selected.linkLabel;
+  alertsHintEl.textContent = `Desktop alert when ${selected.name} pricing switches`;
+  tick();
+}
+
+providerEl.addEventListener("change", async () => {
+  providerEl.disabled = true;
+  try {
+    await chrome.storage.local.set({ provider: providerEl.value });
+    applyProvider(providerEl.value);
+  } catch {
+    providerEl.value = provider;
+    alertsHintEl.textContent = "Couldn’t save provider. Please try again.";
+  } finally {
+    providerEl.disabled = false;
+  }
+});
 
 for (const btn of toggleBtns) {
   btn.addEventListener("click", () => setZone(btn.getAttribute("data-zone")));
@@ -240,7 +277,6 @@ for (const btn of toggleBtns) {
 // first time alerts are turned on; background.js sends the notifications.
 const alertsToggleEl = document.getElementById("ds-alerts-toggle");
 const alertsHintEl = document.getElementById("ds-alerts-hint");
-const ALERTS_HINT = alertsHintEl.textContent;
 
 function setAlerts(on) {
   alertsToggleEl.checked = on;
@@ -248,7 +284,7 @@ function setAlerts(on) {
 }
 
 alertsToggleEl.addEventListener("change", () => {
-  alertsHintEl.textContent = ALERTS_HINT;
+  alertsHintEl.textContent = `Desktop alert when ${getProvider(provider).name} pricing switches`;
   if (!alertsToggleEl.checked) {
     setAlerts(false);
     return;
@@ -271,9 +307,13 @@ Promise.all([
 });
 
 buildFormatters();
-buildWindowRows(SWITCH_MINUTES.length);
+buildWindowRows(4);
 renderTzLabel();
-renderTrack();
 applyToggleState();
-tick();
-setInterval(tick, 1000);
+chrome.storage.local.get("provider")
+  .then(({ provider: saved }) => applyProvider(saved))
+  .catch(() => applyProvider(DEFAULT_PROVIDER))
+  .finally(() => {
+    providerEl.disabled = false;
+    setInterval(tick, 1000);
+  });
